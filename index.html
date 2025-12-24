@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>星际跃迁 - 手机版</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #010105; font-family: sans-serif; touch-action: none; }
+        canvas { display: block; }
+        #ui {
+            position: absolute; top: 20px; left: 20px; color: #00d2ff;
+            font-size: 18px; font-weight: bold; pointer-events: none;
+            text-shadow: 0 0 10px rgba(0,210,255,0.8);
+        }
+        #highScore { font-size: 12px; color: rgba(0,210,255,0.6); margin-top: 5px; }
+        
+        #panel {
+            position: absolute; top: 20px; right: 10px; 
+            background: rgba(0, 30, 60, 0.7); padding: 10px; 
+            border-radius: 12px; border: 1px solid rgba(0, 210, 255, 0.5);
+            color: #fff; font-size: 11px; z-index: 1000;
+        }
+        input[type=range] { width: 80px; accent-color: #00d2ff; vertical-align: middle; }
+
+        #msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #fff; text-align: center; display: none; 
+            background: rgba(5,5,20,0.98); width: 260px;
+            padding: 30px; border-radius: 25px; border: 2px solid #00d2ff;
+            box-shadow: 0 0 50px rgba(0,210,255,0.5); z-index: 1001;
+        }
+        button {
+            background: #00d2ff; border: none; padding: 12px 40px; color: #000;
+            border-radius: 30px; cursor: pointer; font-size: 18px; font-weight: bold; margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        SCORE: <span id="score">0</span>
+        <div id="highScore">BEST: <span id="best">0</span></div>
+    </div>
+    
+    <div id="panel">
+        高度: <input type="range" id="inputJump" min="9" max="18" step="0.5" value="12"><br>
+        速度: <input type="range" id="inputGravity" min="0.15" max="0.7" step="0.05" value="0.35">
+    </div>
+
+    <div id="msg">
+        <h2 style="margin:0; color:#00d2ff;">链接中断</h2>
+        <div id="finalScore" style="font-size:40px; font-weight:bold; margin:15px 0;">0</div>
+        <button onclick="resetGame()">重新同步</button>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let state = {
+    jump: -12, grav: 0.35, w: 0, h: 0, camY: 0, score: 0,
+    over: false, active: false, player: null, platforms: [], stars: [], anim: null
+};
+
+// 增加本地最高分存储
+let bestScore = localStorage.getItem('starJumpBest') || 0;
+document.getElementById('best').innerText = bestScore;
+
+const inJ = document.getElementById('inputJump');
+const inG = document.getElementById('inputGravity');
+inJ.oninput = (e) => state.jump = -parseFloat(e.target.value);
+inG.oninput = (e) => state.grav = parseFloat(e.target.value);
+
+class Player {
+    constructor() { this.r = 11; this.x = state.w/2; this.y = state.h-150; this.vx = 0; this.vy = 0; }
+    draw() {
+        ctx.fillStyle = '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = '#00d2ff';
+        ctx.beginPath(); ctx.arc(this.x, this.y - state.camY, this.r, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+    update() {
+        this.vy += state.grav; this.y += this.vy; this.x += this.vx;
+        if (this.x < 0) this.x = state.w; if (this.x > state.w) this.x = 0;
+    }
+}
+
+class Platform {
+    constructor(y, lastX, base = false) {
+        this.y = y; this.h = 10; this.base = base;
+        this.w = base ? state.w : 70 + Math.random()*40;
+        this.x = base ? 0 : Math.max(10, Math.min(state.w-this.w-10, lastX - 170 + Math.random()*340));
+        this.color = base ? '#151530' : `hsl(${Math.random()*40+190}, 80%, 60%)`;
+    }
+    draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x, this.y - state.camY, this.w, this.h); }
+}
+
+function resetGame() {
+    if (state.anim) cancelAnimationFrame(state.anim);
+    state.w = canvas.width = window.innerWidth;
+    state.h = canvas.height = window.innerHeight;
+    state.camY = 0; state.score = 0; state.over = false; state.active = false;
+    document.getElementById('msg').style.display = 'none';
+    document.getElementById('score').innerText = '0';
+    state.player = new Player(); state.platforms = [new Platform(state.h-100, 0, true)];
+    let py = state.h-250, px = state.w/2;
+    for(let i=0; i<8; i++) { let p = new Platform(py, px); state.platforms.push(p); px = p.x; py -= 165; }
+    state.stars = Array.from({length: 50}, () => ({ x: Math.random()*state.w, y: Math.random()*state.h, r: Math.random()*1.2 }));
+    update();
+}
+
+function update() {
+    if (state.over) return;
+    ctx.fillStyle = '#020208'; ctx.fillRect(0,0,state.w,state.h);
+    ctx.fillStyle = '#fff'; state.stars.forEach(s => ctx.fillRect(s.x, (s.y - state.camY*0.2)%state.h, s.r, s.r));
+    if (state.active && state.player.y < state.camY + state.h*0.45) state.camY += (state.player.y - state.camY - state.h*0.45)*0.1;
+    state.platforms.forEach((p, i) => {
+        p.draw();
+        if (state.player.vy > 0 && state.player.x+8 > p.x && state.player.x-8 < p.x+p.w && state.player.y+11 > p.y && state.player.y+11 < p.y+20) {
+            state.player.vy = state.jump; state.player.y = p.y-11;
+            let s = Math.floor(Math.abs(state.player.y - (state.h-100))/10);
+            if(s > state.score) { state.score = s; document.getElementById('score').innerText = s; }
+        }
+        if (p.y - state.camY > state.h) {
+            let topP = state.platforms.reduce((prev, curr) => prev.y < curr.y ? prev : curr);
+            state.platforms[i] = new Platform(topP.y - 165, topP.x);
+        }
+    });
+    state.player.update(); state.player.draw();
+    if (state.player.y - state.camY > state.h) {
+        state.over = true; document.getElementById('finalScore').innerText = state.score;
+        document.getElementById('msg').style.display = 'block';
+        if(state.score > bestScore) {
+            bestScore = state.score;
+            localStorage.setItem('starJumpBest', bestScore);
+            document.getElementById('best').innerText = bestScore;
+        }
+    }
+    state.anim = requestAnimationFrame(update);
+}
+
+window.addEventListener('touchstart', e => {
+    state.player.vx = e.touches[0].clientX < state.w/2 ? -6 : 6;
+    if (!state.active) state.active = true;
+    e.preventDefault();
+}, { passive: false });
+window.addEventListener('touchend', () => state.player.vx = 0);
+window.onload = resetGame;
+</script>
+</body>
+</html>
